@@ -15,22 +15,24 @@ const BOND_STYLE_TO_SDF = Dict(
 
 
 function printv2atoms(
-        io::IO, g::SimpleGraph, atomsymbol::Vector{Symbol}, coords::Coords2d)
+        io::IO, g::SimpleGraph, atomsymbol::Vector{Symbol}, coords::Coords2d, imph::Vector{Int}=Int[])
     for i in vertices(g)
         x, y = coords[i][1:2]
         z = 0.0  # TODO: keep 3D
         xyzsym = @sprintf "%10.4f%10.4f%10.4f %-3s" x y z string(atomsymbol[i])
-        println(io, "$(xyzsym) 0  0  0  0  0  0  0  0  0  0  0  0")
+        h_flag = !isempty(imph) && imph[i] >= 0 ? (imph[i] + 1) : 0
+        @printf(io, "%s%2d%3d%3d%3d%3d%3d%3d%3d%3d%3d%3d%3d\n", xyzsym, 0, 0, 0, h_flag, 0, 0, 0, 0, 0, 0, 0, 0)
     end
 end
 
 
 function printv2atoms(
-        io::IO, g::SimpleGraph, atomsymbol::Vector{Symbol}, coords::Coords3d)
+        io::IO, g::SimpleGraph, atomsymbol::Vector{Symbol}, coords::Coords3d, imph::Vector{Int}=Int[])
     for i in vertices(g)
         x, y, z = coords[i][1:3]
         xyzsym = @sprintf "%10.4f%10.4f%10.4f %-3s" x y z string(atomsymbol[i])
-        println(io, "$(xyzsym) 0  0  0  0  0  0  0  0  0  0  0  0")
+        h_flag = !isempty(imph) && imph[i] >= 0 ? (imph[i] + 1) : 0
+        @printf(io, "%s%2d%3d%3d%3d%3d%3d%3d%3d%3d%3d%3d%3d\n", xyzsym, 0, 0, 0, h_flag, 0, 0, 0, 0, 0, 0, 0, 0)
     end
 end
 
@@ -106,6 +108,11 @@ printv2mol(io::IO, mol::SimpleMolGraph; kwargs...
 function printv2mol(
         io::IO, mol::SimpleMolGraph, V::Type{<:StandardAtom}, E::Type{<:StandardBond}
         ; givebackhydrogen=true)
+    imph = if givebackhydrogen && has_prop(mol, :stereocenter) && !isempty(mol[:stereocenter]) || mol isa CDXMLMolGraph
+        implicit_hydrogens(mol)
+    else
+        Int[]
+    end
     # stereospecific hydrogens for aesthetics of fused rings
     # TODO: this may add unnecessary hydrogens and unexpectedly call coordgen!
     # TODO: HydrogenatedAtom should be implemented to keep hydrogen coordinates
@@ -133,14 +140,14 @@ function printv2mol(
     println(io, header)
     bondorder = bond_order(mol)  # dispatch update
     if has_coords3d(mol)
-        printv2atoms(io, mol.graph, atom_symbol(mol), coords3d(mol))
+        printv2atoms(io, mol.graph, atom_symbol(mol), coords3d(mol), imph)
         printv2bonds(io, mol.graph, bondorder)
     elseif has_coords2d(mol)
-        printv2atoms(io, mol.graph, atom_symbol(mol), coords2d(mol))
+        printv2atoms(io, mol.graph, atom_symbol(mol), coords2d(mol), imph)
         printv2bonds(io, mol.graph, bondorder, draw2d_bond_style(mol))
     else  # Generate coords
         coords, styles = coordgen(mol)
-        printv2atoms(io, mol.graph, atom_symbol(mol), coords)
+        printv2atoms(io, mol.graph, atom_symbol(mol), coords, imph)
         printv2bonds(io, mol.graph, bondorder, styles)
     end
     printv2properties(io, mol)

@@ -414,3 +414,36 @@ function cdxml_on_update!(mol::SimpleMolGraph)
         end
     end
 end
+
+function ctab_atom_v2(::Type{CDXMLAtom}, line::AbstractString)
+    xpos = parse(Float64, line[1:10])
+    ypos = parse(Float64, line[11:20])
+    zpos = parse(Float64, line[21:30])
+    crds = Float64[xpos, ypos, zpos]
+    sym = Symbol(rstrip(line[32:34]))
+    # atom.mass_diff = parse(Int, line[35:36])
+    iso = 0  # will be ignored, use ISO property instead
+    old_sdf_charge = parse(Int, line[37:39])
+    chg = SDF_CHARGE_TABLE[old_sdf_charge]
+    mul = old_sdf_charge == 4 ? 2 : 1
+    # atom.stereo_flag = parse(Int, line[40:42])
+    # valence = parse(Int, line[46:48])
+    isaromatic = false
+    # -1 means automatic, any value >= 0 is the explicit number of hydrogens
+    num_hs = parse(Int, line[43:45]) - 1
+    return CDXMLAtom(sym, chg, mul, iso, isaromatic, crds, num_hs)
+end
+
+function ctab_atom_v3(::Type{CDXMLAtom}, line::AbstractString)
+    ss = split(line)
+    crds = parse.(Float64, ss[5:7])
+    sym = ss[4]
+    props = Dict(sympair.(ss[9:end])...)
+    chg = get(props, :CHG, 0)
+    iso = get(props, :MASS, 0)
+    mul = get(props, :RAD, 1)
+    isaromatic = false
+    # -1 means automatic, any value >= 0 is the explicit number of hydrogens
+    num_hs = parse(Int, line[43:45]) - 1
+    return CDXMLAtom(sym, chg, mul, iso, isaromatic, crds, num_hs)
+end
