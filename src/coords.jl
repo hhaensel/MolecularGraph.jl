@@ -172,10 +172,38 @@ function coordgen(mol::SimpleMolGraph)
     return coords, styles
 end
 
+# Release the native sketcher behind a `minmol` from `getSketcherMinimizer`. Without this,
+# every call leaks the sketcher with all its atoms, bonds, fragments and interaction lists.
+# `freeSketcherMinimizer` only exists in coordgenlibs builds that include it, so look it up once
+# and skip the call (keeping the old behavior) when it is missing.
+const _free_sketcher = Ref{Union{Nothing,Ptr{Cvoid}}}(nothing)
+const _free_sketcher_calls = Threads.Atomic{Int}(0)  # number of sketchers released, for tests
+
+function _free_minmol(minmol::Ptr{Cvoid})
+    if _free_sketcher[] === nothing  # looked up lazily: a module-level lookup would be baked into precompilation
+        _free_sketcher[] = Libdl.dlsym_e(Libdl.dlopen(libcoordgen), :freeSketcherMinimizer)
+    end
+    f = _free_sketcher[]
+    f == C_NULL && return nothing
+    ccall(f, Cvoid, (Ptr{Cvoid},), minmol)
+    Threads.atomic_add!(_free_sketcher_calls, 1)
+    return nothing
+end
+
 function coordgen(
         g::SimpleGraph{T}, atomnum::Vector{Int}, bondorder_::Vector{Int},
         stereocenters::StereocenterMap{T}, stereobonds::StereobondMap{T}) where T
     minmol = @ccall libcoordgen.getSketcherMinimizer()::Ptr{Cvoid}
+    try
+        return _coordgen(minmol, g, atomnum, bondorder_, stereocenters, stereobonds)
+    finally
+        _free_minmol(minmol)  # after the coordinates and styles were read
+    end
+end
+
+function _coordgen(
+        minmol::Ptr{Cvoid}, g::SimpleGraph{T}, atomnum::Vector{Int}, bondorder_::Vector{Int},
+        stereocenters::StereocenterMap{T}, stereobonds::StereobondMap{T}) where T
     atoms = Ptr{Cvoid}[]
     bonds = Ptr{Cvoid}[]
     ernk = edge_rank(g)

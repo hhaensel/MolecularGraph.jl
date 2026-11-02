@@ -171,6 +171,7 @@ export
 
 using libinchi_jll: libinchi
 using coordgenlibs_jll: libcoordgen
+import Libdl
 
 include("stereo.jl")
 include("coords.jl")

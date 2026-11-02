@@ -52,3 +52,30 @@ end
     # thiostrepton = smilestomol(raw"C[C@@H](O)[C@@](C)(O)[C@@H](C2=NC6=CS2)NC(C1CSC(/C(NC([C@@H](NC(C3=CS[C@]([C@]4(NC([C@@H](NC(C(NC([C@H](C)NC%10=O)=O)=C)=O)C)=O)C(C5=CSC([C@H]([C@@H](C)OC(C8=CC([C@H](C)O)=C(C=CC(N[C@]([H])%10[C@H](CC)C)[C@@H]9O)C9=N8)=O)NC6=O)=N5)N=C(C7=NC(C(NC(C(NC(C(N)=O)=C)=O)=C)=O)=CS7)CC4)=N3)=O)[C@@H](C)O)=O)=C/C)=N1)=O")
     # @test get_prop(thiostrepton, :stereobond)[Edge(21 => 123)] == (20, 124, false)
 end
+
+
+@testset "coords.free" begin
+    # The native sketcher behind `coordgen` is released through `freeSketcherMinimizer` when the
+    # installed coordgenlibs provides it, and results are unaffected either way.
+    mol = smilestomol(raw"C[C@H](N)C(=O)N[C@@H](Cc1ccc(O)cc1)C(=O)O")
+    stereocenter_from_smiles!(mol)
+    ref = coordgen(mol)  # also resolves the lookup
+
+    h = MolecularGraph.Libdl.dlopen(MolecularGraph.libcoordgen)
+    has_free = MolecularGraph.Libdl.dlsym_e(h, :freeSketcherMinimizer) != C_NULL
+    n0 = MolecularGraph._free_sketcher_calls[]
+    @test all(coordgen(mol) == ref for _ in 1:20)
+    # one release per call, none if the library cannot do it
+    @test MolecularGraph._free_sketcher_calls[] - n0 == (has_free ? 20 : 0)
+
+    # The sketcher is freed on the error path as well: a stereocenter that refers to a missing atom
+    # throws after the atoms and bonds were created.
+    bad = MolecularGraph.StereocenterMap{Int}()
+    bad[1] = MolecularGraph.Stereocenter{Int}(999, 2, 3, true)
+    n1 = MolecularGraph._free_sketcher_calls[]
+    @test_throws BoundsError MolecularGraph.coordgen(
+        mol.graph, MolecularGraph.atom_number(mol), MolecularGraph.bond_order(mol), bad,
+        mol[:stereobond])
+    @test MolecularGraph._free_sketcher_calls[] - n1 == (has_free ? 1 : 0)
+    @test coordgen(mol) == ref  # still usable afterwards
+end
